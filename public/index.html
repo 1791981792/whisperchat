@@ -405,6 +405,12 @@ function handleMessage(msg) {
     case 'waiting':
       state.isMatching = true;
       state.connectionCount = msg.poolSize;
+      updateWaitDisplay();
+      break;
+
+    case 'pool_update':
+      state.connectionCount = msg.poolSize;
+      if (state.isMatching) updateWaitDisplay();
       updateOnlineCount();
       break;
 
@@ -510,11 +516,11 @@ function startMatch() {
   state.isMatching = true;
   showPage('matching');
 
-  // 随机等待提示
+  // 排队计时
   let waitSec = 0;
-  const waitInterval = setInterval(() => {
+  state._waitInterval = setInterval(() => {
     waitSec++;
-    document.getElementById('waitTime').textContent = `已等待 ${waitSec} 秒...`;
+    updateWaitDisplay(waitSec);
   }, 1000);
 
   // 发起匹配
@@ -522,17 +528,19 @@ function startMatch() {
     type: 'join_match',
     tags: state.selectedTags
   });
+}
 
-  // 如果 30 秒没匹配上，提示
-  setTimeout(() => {
-    if (state.isMatching) {
-      clearInterval(waitInterval);
-      document.getElementById('waitTime').textContent = '等待超时，当前在线人数不足';
+function updateWaitDisplay(waitSec) {
+  const el = document.getElementById('waitTime');
+  const size = state.connectionCount || 1;
+  const ahead = Math.max(0, size - 1);
+  if (waitSec !== undefined) {
+    if (ahead === 0) {
+      el.textContent = `已排队 ${waitSec} 秒 | 等待新伙伴加入...`;
+    } else {
+      el.textContent = `已排队 ${waitSec} 秒 | 前方 ${ahead} 人在等待`;
     }
-  }, 30000);
-
-  // 存储 interval 以便取消
-  state._waitInterval = waitInterval;
+  }
 }
 
 function cancelMatch() {
@@ -666,11 +674,8 @@ function escapeHtml(text) {
 
 // ============ 在线人数 ============
 function updateOnlineCount() {
-  // 简单算法：连接数 = 池中人数 + 聊天中的人数 * 2 + 一些误差
-  const chatting = state.isChatting ? 2 : 0;
-  // 通过 WebSocket 定期向服务器查询在线状态
-  const count = Math.max(state.connectionCount || 1, state.isMatching ? 1 : Math.floor(Math.random() * 3) + 1);
-  document.getElementById('onlineCount').textContent = String(count);
+  const count = state.connectionCount || 0;
+  document.getElementById('onlineCount').textContent = String(Math.max(1, count));
 }
 
 // ============ 标签选择 ============

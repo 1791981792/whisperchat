@@ -85,6 +85,7 @@ function tryMatch() {
 
     console.log(`匹配: ${user1.name}(${user1.id}) <-> ${user2.name}(${user2.id})`);
   }
+  broadcastPoolUpdate();
 }
 
 function sendSafe(ws, data) {
@@ -93,9 +94,22 @@ function sendSafe(ws, data) {
   } catch (e) {}
 }
 
+function broadcastPoolUpdate() {
+  const update = JSON.stringify({
+    type: 'pool_update',
+    poolSize: waitingPool.length
+  });
+  for (const user of waitingPool) {
+    sendSafe(user.ws, update);
+  }
+}
+
 function removeFromPool(ws) {
   const idx = waitingPool.findIndex(u => u.ws === ws);
-  if (idx !== -1) waitingPool.splice(idx, 1);
+  if (idx !== -1) {
+    waitingPool.splice(idx, 1);
+    broadcastPoolUpdate();
+  }
 }
 
 function handleDisconnect(ws) {
@@ -166,6 +180,7 @@ wss.on('connection', (ws) => {
         });
         console.log(`加入匹配池: ${info.name}, 标签: ${info.tags.join(',')}, 池大小: ${waitingPool.length}`);
         ws.send(JSON.stringify({ type: 'waiting', poolSize: waitingPool.length }));
+        broadcastPoolUpdate();
         tryMatch();
         break;
       }
