@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: whisperchat
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /

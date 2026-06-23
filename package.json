@@ -1,0 +1,13 @@
+{
+  "name": "whisperchat",
+  "version": "1.0.0",
+  "description": "匿名随机匹配聊天",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  }
+}

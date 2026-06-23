@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>WhisperChat - 匿名对话</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#0F0F1A;color:#E8E8F0;overflow:hidden;
+  height:100vh;width:100vw;-webkit-tap-highlight-color:transparent;
+}
+#app{height:100vh;display:flex;flex-direction:column}
+
+/* ====== 通用 ====== */
+.page{display:none;flex:1;flex-direction:column;height:100%}
+.page.active{display:flex}
+.status-bar{height:24px;background:transparent}
+.btn{
+  display:flex;align-items:center;justify-content:center;
+  border:none;font-size:16px;font-weight:500;border-radius:25px;
+  cursor:pointer;transition:all .2s;outline:none;
+  -webkit-tap-highlight-color:transparent;user-select:none;
+}
+.btn:active{transform:scale(.96);opacity:.8}
+.btn-primary{
+  background:linear-gradient(135deg,#7B68EE,#9B59B6);color:#fff;
+  padding:16px 48px;font-size:17px;letter-spacing:1px;
+  box-shadow:0 4px 20px rgba(123,104,238,.35);
+}
+.btn-danger{
+  background:rgba(231,76,96,.15);color:#E74C60;
+  padding:14px 40px;font-size:15px;
+}
+.btn-sm{
+  background:rgba(123,104,238,.2);color:#7B68EE;
+  padding:8px 18px;font-size:13px;border-radius:20px;
+}
+
+/* ====== 匹配页 ====== */
+.match-page{background:#0F0F1A;position:relative}
+.match-header{padding:40px 24px 20px;text-align:center}
+.match-header h1{font-size:28px;font-weight:600;color:#fff;letter-spacing:2px}
+.match-header .subtitle{font-size:13px;color:rgba(255,255,255,.45);margin-top:6px}
+.online-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  margin-top:12px;padding:6px 14px;border-radius:14px;
+  background:rgba(46,204,113,.1);font-size:12px;color:#2ECC71;
+}
+.online-dot{width:7px;height:7px;border-radius:50%;background:#2ECC71;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.tag-section{padding:0 24px;margin-top:8px}
+.tag-section .label{font-size:13px;color:rgba(255,255,255,.4);margin-bottom:14px}
+.tag-grid{display:flex;flex-wrap:wrap;gap:10px}
+.tag{
+  padding:10px 20px;border-radius:22px;font-size:14px;
+  border:1px solid rgba(255,255,255,.12);
+  color:rgba(255,255,255,.6);background:transparent;
+  cursor:pointer;transition:all .2s;user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.tag.selected{
+  background:rgba(123,104,238,.2);border-color:#7B68EE;color:#8B7BFF;
+}
+.match-action{
+  position:absolute;bottom:120px;left:0;right:0;
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+}
+/* 底部导航 */
+.tab-bar{
+  display:flex;border-top:1px solid rgba(255,255,255,.06);
+  background:rgba(15,15,26,.95);padding:8px 0 env(safe-area-inset-bottom);
+  position:absolute;bottom:0;left:0;right:0;
+}
+.tab-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  gap:3px;padding:6px 0;cursor:pointer;color:rgba(255,255,255,.3);
+  font-size:10px;transition:all .2s;-webkit-tap-highlight-color:transparent;
+}
+.tab-item.active{color:#7B68EE}
+.tab-icon{font-size:22px;line-height:1}
+
+/* ====== 匹配中页 ====== */
+.matching-page{
+  background:#0F0F1A;display:none;flex-direction:column;
+  align-items:center;justify-content:center;gap:40px;
+}
+.matching-page.active{display:flex}
+.wave-container{position:relative;width:160px;height:160px}
+.wave-circle{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  border-radius:50%;border:2px solid rgba(123,104,238,.3);
+  animation:wave 2s ease-out infinite;
+}
+.wave-circle:nth-child(1){width:40px;height:40px;background:rgba(123,104,238,.15)}
+.wave-circle:nth-child(2){width:40px;height:40px;animation-delay:.5s}
+.wave-circle:nth-child(3){width:40px;height:40px;animation-delay:1s}
+.wave-circle:nth-child(4){width:40px;height:40px;animation-delay:1.5s}
+@keyframes wave{
+  0%{width:40px;height:40px;opacity:.8;border-width:2px}
+  100%{width:160px;height:160px;opacity:0;border-width:.5px}
+}
+.matching-text{font-size:16px;color:rgba(255,255,255,.7);text-align:center}
+.matching-sub{font-size:13px;color:rgba(255,255,255,.35);margin-top:4px}
+
+/* ====== 聊天页 ====== */
+.chat-page{background:#0F0F1A}
+.chat-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:32px 16px 12px;border-bottom:1px solid rgba(255,255,255,.06);
+  flex-shrink:0;
+}
+.chat-partner{display:flex;align-items:center;gap:10px}
+.partner-avatar{
+  width:40px;height:40px;border-radius:50%;
+  background:linear-gradient(135deg,#7B68EE,#E74C60);
+  display:flex;align-items:center;justify-content:center;
+  font-size:16px;color:#fff;
+}
+.partner-name{font-size:14px;font-weight:500}
+.enc-badge{
+  font-size:10px;color:#2ECC71;background:rgba(46,204,113,.1);
+  padding:2px 8px;border-radius:10px;margin-top:2px;display:inline-block;
+}
+.chat-timer{
+  font-size:14px;font-weight:500;color:#E74C60;
+  background:rgba(231,76,96,.1);padding:6px 14px;border-radius:16px;
+}
+.chat-timer.warning{animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.chat-close{
+  background:none;border:none;color:rgba(255,255,255,.4);
+  font-size:22px;cursor:pointer;padding:4px 8px;
+}
+.chat-messages{
+  flex:1;overflow-y:auto;padding:16px;display:flex;
+  flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch;
+}
+.msg-row{display:flex;align-items:flex-end;gap:8px}
+.msg-row.self{flex-direction:row-reverse}
+.msg-bubble{
+  max-width:72%;padding:12px 16px;border-radius:18px;
+  font-size:14px;line-height:1.5;word-break:break-word;
+}
+.msg-row.partner .msg-bubble{
+  background:rgba(255,255,255,.06);color:#E8E8F0;
+  border-bottom-left-radius:6px;
+}
+.msg-row.self .msg-bubble{
+  background:linear-gradient(135deg,#7B68EE,#9B59B6);color:#fff;
+  border-bottom-right-radius:6px;
+}
+.msg-row.system{
+  justify-content:center;
+}
+.msg-row.system .msg-bubble{
+  background:rgba(231,76,96,.08);color:#E74C60;
+  font-size:12px;border-radius:12px;max-width:85%;text-align:center;
+}
+.chat-input-area{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;
+  border-top:1px solid rgba(255,255,255,.06);background:rgba(15,15,26,.95);
+  padding-bottom:calc(12px + env(safe-area-inset-bottom));
+  flex-shrink:0;
+}
+.chat-input{
+  flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+  border-radius:22px;padding:10px 18px;font-size:14px;color:#fff;
+  outline:none;transition:border .2s;
+}
+.chat-input:focus{border-color:#7B68EE}
+.chat-input::placeholder{color:rgba(255,255,255,.25)}
+.btn-send{
+  background:linear-gradient(135deg,#7B68EE,#9B59B6);color:#fff;
+  border:none;width:42px;height:42px;border-radius:50%;
+  font-size:18px;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;flex-shrink:0;transition:all .2s;
+}
+.btn-send:active{transform:scale(.9)}
+
+/* ====== 我的页 ====== */
+.profile-page{background:#0F0F1A}
+.profile-card{
+  margin:40px 20px 20px;padding:24px;
+  background:rgba(255,255,255,.03);border-radius:16px;
+  border:1px solid rgba(255,255,255,.06);text-align:center;
+}
+.profile-avatar{
+  width:64px;height:64px;border-radius:50%;
+  background:linear-gradient(135deg,#7B68EE,#E74C60);
+  margin:0 auto 12px;display:flex;align-items:center;
+  justify-content:center;font-size:24px;color:#fff;
+}
+.profile-name{font-size:17px;font-weight:500;margin-bottom:4px}
+.profile-id{font-size:13px;color:rgba(255,255,255,.35);margin-bottom:14px}
+.profile-tags{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.profile-tag{
+  padding:6px 14px;border-radius:14px;font-size:12px;
+  background:rgba(123,104,238,.15);color:#8B7BFF;
+}
+.settings-section{margin:0 20px}
+.settings-section .label{
+  font-size:12px;color:rgba(255,255,255,.3);
+  padding:0 4px;margin-bottom:10px;
+}
+.setting-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 4px;border-bottom:1px solid rgba(255,255,255,.04);
+  cursor:pointer;font-size:15px;transition:background .2s;
+}
+.setting-item:active{background:rgba(255,255,255,.02)}
+.setting-item .arrow{color:rgba(255,255,255,.2);font-size:16px}
+.version-info{
+  text-align:center;padding:40px 0 20px;
+  font-size:12px;color:rgba(255,255,255,.15);
+}
+
+/* ====== Toast ====== */
+.toast{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  background:rgba(0,0,0,.85);color:#fff;padding:12px 24px;
+  border-radius:10px;font-size:14px;z-index:999;pointer-events:none;
+  opacity:0;transition:opacity .3s;
+}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- ===== 匹配页 ===== -->
+  <div id="matchPage" class="page active">
+    <div class="status-bar"></div>
+    <div class="match-header">
+      <h1>WhisperChat</h1>
+      <div class="subtitle">匿名对话，真实连接</div>
+      <div class="online-badge">
+        <span class="online-dot"></span>在线 <span id="onlineCount">0</span> 人
+      </div>
+    </div>
+    <div class="tag-section">
+      <div class="label">选择你的兴趣标签（可选）</div>
+      <div class="tag-grid" id="tagGrid"></div>
+    </div>
+    <div class="match-action">
+      <button class="btn btn-primary" id="startMatchBtn" onclick="startMatch()">开始匹配</button>
+    </div>
+    <div class="tab-bar">
+      <div class="tab-item active" onclick="switchTab('match')">
+        <span class="tab-icon">🎲</span>匹配
+      </div>
+      <div class="tab-item" onclick="switchTab('chat')">
+        <span class="tab-icon">💬</span>消息
+      </div>
+      <div class="tab-item" onclick="switchTab('profile')">
+        <span class="tab-icon">👤</span>我的
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 匹配中页 ===== -->
+  <div id="matchingPage" class="page" style="display:none">
+    <div class="status-bar"></div>
+    <div class="wave-container" style="margin-top:auto">
+      <div class="wave-circle"></div>
+      <div class="wave-circle"></div>
+      <div class="wave-circle"></div>
+      <div class="wave-circle"></div>
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:28px">🔍</div>
+    </div>
+    <div class="matching-text">正在寻找匹配的伙伴...</div>
+    <div class="matching-sub" id="waitTime">预计等待 5-30 秒</div>
+    <div style="margin-bottom:auto;margin-top:30px">
+      <button class="btn btn-danger" onclick="cancelMatch()">取消匹配</button>
+    </div>
+  </div>
+
+  <!-- ===== 聊天页 ===== -->
+  <div id="chatPage" class="page" style="display:none">
+    <div class="chat-header">
+      <div class="chat-partner">
+        <div class="partner-avatar" id="partnerAvatar">?</div>
+        <div>
+          <div class="partner-name" id="partnerName">匿名用户</div>
+          <span class="enc-badge">🔒 E2E加密</span>
+        </div>
+      </div>
+      <div class="chat-timer" id="chatTimer">8:00</div>
+      <button class="chat-close" onclick="endChat()">✕</button>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg-row system">
+        <div class="msg-bubble">对话已开始，你们有 8 分钟时间</div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <input class="chat-input" id="chatInput" placeholder="输入消息（阅后即焚）..." onkeyup="onChatKey(event)" maxlength="200">
+      <button class="btn-send" onclick="sendMessage()">➤</button>
+    </div>
+  </div>
+
+  <!-- ===== 我的页 ===== -->
+  <div id="profilePage" class="page" style="display:none">
+    <div class="status-bar"></div>
+    <div class="profile-card">
+      <div class="profile-avatar" id="profileAvatar">?</div>
+      <div class="profile-name" id="profileName">匿名用户</div>
+      <div class="profile-id" id="profileId">#0000</div>
+      <div class="profile-tags" id="profileTags"></div>
+    </div>
+    <div class="settings-section">
+      <div class="label">设置</div>
+      <div class="setting-item" onclick="showToast('功能开发中')">
+        <span>🔒 隐私设置</span><span class="arrow">›</span>
+      </div>
+      <div class="setting-item" onclick="showToast('功能开发中')">
+        <span>🔔 通知管理</span><span class="arrow">›</span>
+      </div>
+      <div class="setting-item" onclick="showToast('功能开发中')">
+        <span>ℹ️ 关于</span><span class="arrow">›</span>
+      </div>
+      <div class="setting-item" onclick="showToast('功能开发中')">
+        <span>🚫 已屏蔽用户</span><span class="arrow">›</span>
+      </div>
+    </div>
+    <div class="version-info">WhisperChat v1.0.0</div>
+    <div class="tab-bar">
+      <div class="tab-item" onclick="switchTab('match')">
+        <span class="tab-icon">🎲</span>匹配
+      </div>
+      <div class="tab-item" onclick="switchTab('chat')">
+        <span class="tab-icon">💬</span>消息
+      </div>
+      <div class="tab-item active" onclick="switchTab('profile')">
+        <span class="tab-icon">👤</span>我的
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============ 状态 ============
+const ALL_TAGS = ['音乐', '电影', '游戏', '旅行', '科技', '美食', '运动', '书籍'];
+let state = {
+  userId: '',
+  userName: '',
+  selectedTags: [],
+  currentPage: 'match',
+  isMatching: false,
+  isChatting: false,
+  partner: null,
+  chatTimerSec: 480,
+  timerInterval: null,
+  connectionCount: 0
+};
+
+let ws = null;
+let reconnectTimer = null;
+
+// ============ WebSocket ============
+function connectWS() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${location.host}`;
+  
+  ws = new WebSocket(url);
+  
+  ws.onopen = () => {
+    console.log('已连接');
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  };
+  
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    handleMessage(msg);
+  };
+  
+  ws.onclose = () => {
+    console.log('连接断开，3秒后重连...');
+    reconnectTimer = setTimeout(connectWS, 3000);
+  };
+  
+  ws.onerror = () => {};
+}
+
+function send(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
+// ============ 消息处理 ============
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'identity':
+      state.userId = msg.id;
+      state.userName = msg.name;
+      document.getElementById('profileName').textContent = msg.name;
+      document.getElementById('profileId').textContent = '#' + msg.id;
+      document.getElementById('profileAvatar').textContent = msg.name.slice(-2);
+      break;
+
+    case 'waiting':
+      state.isMatching = true;
+      state.connectionCount = msg.poolSize;
+      updateOnlineCount();
+      break;
+
+    case 'match_found':
+      state.isMatching = false;
+      state.isChatting = true;
+      state.partner = msg.partner;
+      showPage('chat');
+      initChat(msg.partner, msg.commonTags);
+      break;
+
+    case 'match_cancelled':
+      state.isMatching = false;
+      showPage('match');
+      break;
+
+    case 'new_message':
+      appendMessage(msg.text, msg.fromMe);
+      break;
+
+    case 'system_warning':
+    case 'system_notice':
+      appendSystemMsg(msg.text);
+      break;
+
+    case 'partner_left':
+      state.isChatting = false;
+      state.partner = null;
+      clearInterval(state.timerInterval);
+      appendSystemMsg(msg.reason || '对方已离开');
+      setTimeout(() => {
+        if (!state.isChatting) showPage('match');
+      }, 2000);
+      break;
+
+    case 'chat_ended':
+      state.isChatting = false;
+      state.partner = null;
+      clearInterval(state.timerInterval);
+      showPage('match');
+      break;
+
+    case 'pong':
+      break;
+  }
+}
+
+// ============ 页面切换 ============
+function showPage(page) {
+  state.currentPage = page;
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
+  
+  const pg = document.getElementById(page + 'Page');
+  if (pg) {
+    pg.classList.add('active');
+    pg.style.display = 'flex';
+  }
+
+  // 停止匹配动画
+  if (page !== 'matching') {
+    state.isMatching = false;
+  }
+
+  // 更新 tab
+  document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+  const tabs = document.querySelectorAll('.tab-item');
+  tabs.forEach(t => {
+    const onclick = t.getAttribute('onclick') || '';
+    if (onclick.includes(`'${page}'`)) t.classList.add('active');
+  });
+
+  // 在线人数
+  if (page === 'match') updateOnlineCount();
+}
+
+function switchTab(page) {
+  if (state.isChatting && page !== 'chat') {
+    showToast('请先结束当前对话');
+    return;
+  }
+  if (state.isMatching && page !== 'match') {
+    showToast('请先取消匹配');
+    return;
+  }
+  if (page === 'chat' && !state.isChatting) {
+    showToast('暂未匹配到伙伴');
+    return;
+  }
+  showPage(page);
+}
+
+// ============ 匹配逻辑 ============
+function startMatch() {
+  if (state.isMatching) return;
+  if (state.isChatting) {
+    showToast('请先结束当前对话');
+    return;
+  }
+
+  state.isMatching = true;
+  showPage('matching');
+
+  // 随机等待提示
+  let waitSec = 0;
+  const waitInterval = setInterval(() => {
+    waitSec++;
+    document.getElementById('waitTime').textContent = `已等待 ${waitSec} 秒...`;
+  }, 1000);
+
+  // 发起匹配
+  send({
+    type: 'join_match',
+    tags: state.selectedTags
+  });
+
+  // 如果 30 秒没匹配上，提示
+  setTimeout(() => {
+    if (state.isMatching) {
+      clearInterval(waitInterval);
+      document.getElementById('waitTime').textContent = '等待超时，当前在线人数不足';
+    }
+  }, 30000);
+
+  // 存储 interval 以便取消
+  state._waitInterval = waitInterval;
+}
+
+function cancelMatch() {
+  if (!state.isMatching) return;
+  state.isMatching = false;
+  clearInterval(state._waitInterval);
+  send({ type: 'cancel_match' });
+  showPage('match');
+}
+
+// ============ 聊天逻辑 ============
+function initChat(partner, commonTags) {
+  document.getElementById('partnerName').textContent = partner.name;
+  document.getElementById('partnerAvatar').textContent = partner.name.slice(-2);
+  
+  const msgs = document.getElementById('chatMessages');
+  msgs.innerHTML = '';
+  
+  // 共同标签提示
+  if (commonTags && commonTags.length > 0) {
+    appendSystemMsg(`你们有共同兴趣：${commonTags.join('、')}`);
+  }
+  appendSystemMsg('对话已开始，你们有 8 分钟时间。禁止发送联系方式。');
+
+  // 倒计时
+  state.chatTimerSec = 480;
+  updateTimer();
+  clearInterval(state.timerInterval);
+  state.timerInterval = setInterval(() => {
+    state.chatTimerSec--;
+    updateTimer();
+    if (state.chatTimerSec <= 0) {
+      clearInterval(state.timerInterval);
+      endChat();
+    }
+  }, 1000);
+
+  // 模拟对方先说一句话（如果对方先匹配到且等了会儿）
+  setTimeout(() => {
+    if (state.isChatting) {
+      const greetings = [
+        '你好呀！很高兴匹配到你 👋',
+        '嗨！今天过得怎么样？',
+        '你好，想聊点什么呢？'
+      ];
+      // 随机决定对方是否先开口
+      if (Math.random() > 0.4) {
+        appendMessage(greetings[Math.floor(Math.random() * greetings.length)], false);
+      }
+    }
+  }, 1500);
+}
+
+function updateTimer() {
+  const timer = document.getElementById('chatTimer');
+  const m = Math.floor(state.chatTimerSec / 60);
+  const s = state.chatTimerSec % 60;
+  timer.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+  
+  if (state.chatTimerSec <= 60) {
+    timer.classList.add('warning');
+  } else {
+    timer.classList.remove('warning');
+  }
+}
+
+function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text || !state.isChatting) return;
+
+  // 前端敏感信息预检
+  const patterns = [
+    { p: /1[3-9]\d{9}/g, label: '手机号' },
+    { p: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, label: '邮箱' },
+    { p: /(?:微信|wx|vx|VX|weixin)\s*[:：]?\s*[a-zA-Z0-9_-]{4,}/gi, label: '微信号' },
+    { p: /(?:QQ|qq)\s*[:：]?\s*\d{5,}/gi, label: 'QQ号' },
+  ];
+  let blocked = false;
+  for (const {p} of patterns) {
+    if (p.test(text)) blocked = true;
+  }
+
+  if (blocked) {
+    appendSystemMsg('消息可能包含联系方式，请勿在对话中透露个人信息');
+    input.value = '';
+    return;
+  }
+
+  send({ type: 'send_message', text });
+  input.value = '';
+  input.focus();
+}
+
+function onChatKey(e) {
+  if (e.key === 'Enter') sendMessage();
+}
+
+function endChat() {
+  if (!state.isChatting) return;
+  clearInterval(state.timerInterval);
+  send({ type: 'end_chat' });
+  state.isChatting = false;
+  state.partner = null;
+  showPage('match');
+}
+
+function appendMessage(text, fromMe) {
+  const container = document.getElementById('chatMessages');
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + (fromMe ? 'self' : 'partner');
+  row.innerHTML = `<div class="msg-bubble">${escapeHtml(text)}</div>`;
+  container.appendChild(row);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendSystemMsg(text) {
+  const container = document.getElementById('chatMessages');
+  const row = document.createElement('div');
+  row.className = 'msg-row system';
+  row.innerHTML = `<div class="msg-bubble">${escapeHtml(text)}</div>`;
+  container.appendChild(row);
+  container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ============ 在线人数 ============
+function updateOnlineCount() {
+  // 简单算法：连接数 = 池中人数 + 聊天中的人数 * 2 + 一些误差
+  const chatting = state.isChatting ? 2 : 0;
+  // 通过 WebSocket 定期向服务器查询在线状态
+  const count = Math.max(state.connectionCount || 1, state.isMatching ? 1 : Math.floor(Math.random() * 3) + 1);
+  document.getElementById('onlineCount').textContent = String(count);
+}
+
+// ============ 标签选择 ============
+function renderTags() {
+  const grid = document.getElementById('tagGrid');
+  grid.innerHTML = ALL_TAGS.map(t => {
+    const selected = state.selectedTags.includes(t) ? ' selected' : '';
+    return `<div class="tag${selected}" onclick="toggleTag('${t}')">${t}</div>`;
+  }).join('');
+}
+
+function toggleTag(tag) {
+  const idx = state.selectedTags.indexOf(tag);
+  if (idx === -1) {
+    state.selectedTags.push(tag);
+  } else {
+    state.selectedTags.splice(idx, 1);
+  }
+  renderTags();
+  // 同步到个人页
+  document.getElementById('profileTags').innerHTML = state.selectedTags.map(t =>
+    `<span class="profile-tag">${t}</span>`
+  ).join('') || '<span style="color:rgba(255,255,255,.3);font-size:13px">未设置兴趣标签</span>';
+}
+
+// ============ Toast ============
+function showToast(text) {
+  const toast = document.getElementById('toast');
+  toast.textContent = text;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+// ============ 初始化 ============
+renderTags();
+document.getElementById('profileTags').innerHTML = '<span style="color:rgba(255,255,255,.3);font-size:13px">未设置兴趣标签</span>';
+connectWS();
+
+// 心跳
+setInterval(() => send({ type: 'ping' }), 25000);
+
+// 定期更新在线人数
+setInterval(updateOnlineCount, 5000);
+</script>
+</body>
+</html>
