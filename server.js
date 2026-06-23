@@ -12,6 +12,52 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ============ 匹配池 ============
 const waitingPool = []; // { ws, id, tags, name }
 const connections = new Map(); // ws -> userInfo
+const idToWs = new Map(); // userId -> ws (for friend online lookup)
+
+// ============ 好友系统 ============
+const friends = new Map(); // userId -> Set<friendId>
+const friendRequests = []; // [{id, fromUserId, fromName, fromWs, toUserId, toWs, status}]
+const friendMessages = new Map(); // "uid1_uid2" -> [{from, text, time}]
+let reqCounter = 1;
+
+function friendKey(a, b) { return a < b ? `${a}_${b}` : `${b}_${a}`; }
+
+function addFriendPair(a, b) {
+  if (!friends.has(a)) friends.set(a, new Set());
+  if (!friends.has(b)) friends.set(b, new Set());
+  friends.get(a).add(b);
+  friends.get(b).add(a);
+}
+
+function getFriends(uid) {
+  return friends.get(uid) ? [...friends.get(uid)] : [];
+}
+
+function getFriendListWithNames(uid) {
+  return getFriends(uid).map(fid => {
+    const key = friendKey(uid, fid);
+    const msgs = friendMessages.get(key) || [];
+    return {
+      id: fid,
+      name: `匿名用户 #${fid}`,
+      online: idToWs.has(fid),
+      lastMsg: msgs.length > 0 ? msgs[msgs.length - 1] : null
+    };
+  });
+}
+
+function broadcastFriendStatus(friendId, online) {
+  for (const fid of getFriends(friendId)) {
+    const ws = idToWs.get(fid);
+    if (ws) {
+      sendSafe(ws, JSON.stringify({
+        type: 'friend_status',
+        friendId,
+        online
+      }));
+    }
+  }
+}
 
 // 敏感信息正则
 const SENSITIVE_PATTERNS = [
@@ -130,6 +176,9 @@ function handleDisconnect(ws) {
     }
   }
 
+  // 好友离线通知
+  broadcastFriendStatus(info.id, false);
+  idToWs.delete(info.id);
   connections.delete(ws);
   console.log(`断开: ${info.name}(${info.id})`);
 }
@@ -148,15 +197,20 @@ wss.on('connection', (ws) => {
     tags: []
   };
   connections.set(ws, userInfo);
+  idToWs.set(userId, ws);
 
   console.log(`连接: ${userName}`);
 
-  // 发送身份信息
+  // 发送身份信息(含好友列表)
+  const friendList = getFriendListWithNames(userId);
   ws.send(JSON.stringify({
     type: 'identity',
     id: userId,
-    name: userName
+    name: userName,
+    friends: friendList
   }));
+  // 通知好友上线
+  broadcastFriendStatus(userId, true);
 
   ws.on('message', (raw) => {
     let msg;
@@ -240,6 +294,136 @@ wss.on('connection', (ws) => {
         }
         info.state = 'idle';
         ws.send(JSON.stringify({ type: 'chat_ended' }));
+        break;
+      }
+
+      case 'friend_request': {
+        // 向聊天对象发送好友申请
+        if (!info.partner) return;
+        const pInfo = connections.get(info.partner);
+        if (!pInfo) return;
+        
+        const reqId = String(reqCounter++);
+        const request = {
+          id: reqId,
+          fromUserId: info.id,
+          fromName: info.name,
+          fromWs: ws,
+          toUserId: pInfo.id,
+          toWs: info.partner,
+          status: 'pending'
+        };
+        friendRequests.push(request);
+        
+        // 通知对方
+        sendSafe(info.partner, JSON.stringify({
+          type: 'friend_request',
+          requestId: reqId,
+          fromId: info.id,
+          fromName: info.name
+        }));
+        // 通知自己
+        ws.send(JSON.stringify({
+          type: 'friend_request_sent',
+          requestId: reqId
+        }));
+        break;
+      }
+
+      case 'friend_response': {
+        const req = friendRequests.find(r => r.id === msg.requestId);
+        if (!req || req.status !== 'pending') return;
+
+        if (msg.accept) {
+          addFriendPair(req.fromUserId, req.toUserId);
+          req.status = 'accepted';
+
+          // 通知双方
+          sendSafe(req.fromWs, JSON.stringify({
+            type: 'friend_added',
+            friendId: req.toUserId,
+            friendName: `匿名用户 #${req.toUserId}`
+          }));
+          sendSafe(req.toWs, JSON.stringify({
+            type: 'friend_added',
+            friendId: req.fromUserId,
+            friendName: req.fromName
+          }));
+
+          // 通知双方对方在线状态
+          sendSafe(req.fromWs, JSON.stringify({
+            type: 'friend_status',
+            friendId: req.toUserId,
+            online: true
+          }));
+          sendSafe(req.toWs, JSON.stringify({
+            type: 'friend_status',
+            friendId: req.fromUserId,
+            online: true
+          }));
+        } else {
+          req.status = 'rejected';
+          sendSafe(req.fromWs, JSON.stringify({
+            type: 'friend_request_rejected',
+            requestId: req.id
+          }));
+        }
+        break;
+      }
+
+      case 'friend_message': {
+        const toWs = idToWs.get(msg.toId);
+        if (!toWs) {
+          ws.send(JSON.stringify({ type: 'friend_msg_error', text: '对方不在线' }));
+          return;
+        }
+
+        const key = friendKey(info.id, msg.toId);
+        if (!friendMessages.has(key)) friendMessages.set(key, []);
+        const record = { from: info.id, text: msg.text, time: Date.now() };
+        friendMessages.get(key).push(record);
+
+        // 发给对方
+        sendSafe(toWs, JSON.stringify({
+          type: 'friend_message',
+          fromId: info.id,
+          fromName: info.name,
+          text: msg.text,
+          time: record.time
+        }));
+        // 回显
+        ws.send(JSON.stringify({
+          type: 'friend_message',
+          fromId: info.id,
+          fromName: info.name,
+          text: msg.text,
+          fromMe: true,
+          time: record.time
+        }));
+        break;
+      }
+
+      case 'get_friend_list': {
+        ws.send(JSON.stringify({
+          type: 'friend_list',
+          friends: getFriendListWithNames(info.id)
+        }));
+        break;
+      }
+
+      case 'get_friend_history': {
+        const key = friendKey(info.id, msg.friendId);
+        const msgs = friendMessages.get(key) || [];
+        msgs.forEach(m => {
+          sendSafe(ws, JSON.stringify({
+            type: 'friend_message',
+            fromId: m.from,
+            fromName: `匿名用户 #${m.from}`,
+            text: m.text,
+            fromMe: m.from === info.id,
+            time: m.time
+          }));
+        });
         break;
       }
 
