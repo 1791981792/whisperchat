@@ -311,9 +311,44 @@ body{
   display:flex;align-items:center;gap:10px;padding:12px 16px;
   border-top:1px solid rgba(255,255,255,.06);
   background:rgba(15,15,26,.95);
-  padding-bottom:calc(12px + env(safe-area-inset-bottom));
+  padding-bottom:calc(20px + env(safe-area-inset-bottom, 20px));
   flex-shrink:0;
 }
+
+/* ====== 登录页面 ====== */
+.login-overlay{
+  display:flex;position:fixed;top:0;left:0;right:0;bottom:0;
+  background:#0F0F1A;z-index:200;align-items:center;
+  justify-content:center;flex-direction:column;gap:20px;
+}
+.login-overlay.hidden{display:none}
+.login-box{
+  width:85%;max-width:300px;text-align:center;
+}
+.login-box h2{font-size:24px;font-weight:600;color:#fff;margin-bottom:6px}
+.login-box .sub{font-size:13px;color:rgba(255,255,255,.35);margin-bottom:28px}
+.login-input{
+  width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+  border-radius:12px;padding:14px 16px;font-size:16px;color:#fff;
+  outline:none;text-align:center;letter-spacing:2px;
+  -webkit-text-security:disc;margin-bottom:16px;
+}
+.login-input:focus{border-color:#7B68EE}
+.login-input::placeholder{color:rgba(255,255,255,.2);-webkit-text-security:none}
+.login-btn{
+  width:100%;padding:14px;border:none;border-radius:25px;
+  font-size:16px;font-weight:500;cursor:pointer;
+  background:linear-gradient(135deg,#7B68EE,#9B59B6);color:#fff;
+  transition:all .2s;
+}
+.login-btn:active{transform:scale(.97);opacity:.8}
+.login-hint{
+  font-size:12px;color:rgba(255,255,255,.2);margin-top:12px;
+}
+.login-error{
+  font-size:12px;color:#E74C60;margin-top:8px;display:none;
+}
+.login-error.show{display:block}
 
 /* ====== Toast ====== */
 .toast{
@@ -326,6 +361,19 @@ body{
 </style>
 </head>
 <body>
+
+<!-- 登录页面 -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <h2>🔐 WhisperChat</h2>
+    <div class="sub" id="loginSub">设置密码以保护你的账户</div>
+    <input class="login-input" id="loginPwd" type="password" placeholder="输入密码" maxlength="20" onkeyup="onLoginKey(event)">
+    <input class="login-input" id="loginPwd2" type="password" placeholder="再次输入密码" maxlength="20" style="display:none" onkeyup="onLoginKey(event)">
+    <button class="login-btn" id="loginBtn" onclick="handleLogin()">设置密码</button>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-hint" id="loginHint">密码将保存在本地，用于恢复你的好友和聊天记录</div>
+  </div>
+</div>
 
 <div id="app">
   <!-- ===== 匹配页 ===== -->
@@ -496,7 +544,9 @@ body{
 <script>
 // ============ 状态 ============
 const ALL_TAGS = ['音乐', '电影', '游戏', '旅行', '科技', '美食', '运动', '书籍'];
+const STORAGE_KEY = 'whisperchat_v2';
 let state = {
+  deviceId: '',
   userId: '',
   userName: '',
   selectedTags: [],
@@ -516,6 +566,132 @@ let state = {
 let ws = null;
 let reconnectTimer = null;
 
+// ============ localStorage helpers ============
+function loadStorage() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+  } catch (e) { return {}; }
+}
+
+function saveStorage(data) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function getDeviceId() {
+  let data = loadStorage();
+  if (!data.deviceId) {
+    data.deviceId = 'd_' + crypto.randomUUID();
+    saveStorage(data);
+  }
+  return data.deviceId;
+}
+
+function getPasswordHash() {
+  return loadStorage().passwordHash || null;
+}
+
+function savePassword(password) {
+  const data = loadStorage();
+  const encoder = new TextEncoder();
+  const hash = btoa(String.fromCharCode(...new Uint8Array(
+    [...encoder.encode(password + 'whisperchat_salt')].map((b, i) => b ^ (i % 37 + 7))
+  )).slice(0, 32));
+  data.passwordHash = hash;
+  saveStorage(data);
+  return hash;
+}
+
+function verifyPassword(password) {
+  return savePassword(password) === getPasswordHash();
+}
+
+function loadFriends() {
+  return loadStorage().friends || [];
+}
+
+function saveFriends(friends) {
+  const data = loadStorage();
+  data.friends = friends;
+  saveStorage(data);
+}
+
+function loadChatHistory() {
+  return loadStorage().chatHistory || {};
+}
+
+function saveChatMessage(uid, friendId, msg) {
+  const data = loadStorage();
+  if (!data.chatHistory) data.chatHistory = {};
+  const key = uid < friendId ? `${uid}_${friendId}` : `${friendId}_${uid}`;
+  if (!data.chatHistory[key]) data.chatHistory[key] = [];
+  data.chatHistory[key].push(msg);
+  if (data.chatHistory[key].length > 200) data.chatHistory[key] = data.chatHistory[key].slice(-200);
+  saveStorage(data);
+}
+
+// ============ 登录 ============
+function initLogin() {
+  state.deviceId = getDeviceId();
+  const hash = getPasswordHash();
+  if (!hash) {
+    // 新用户：设置密码
+    document.getElementById('loginSub').textContent = '设置密码以保护你的账户';
+    document.getElementById('loginPwd2').style.display = 'block';
+    document.getElementById('loginBtn').textContent = '设置密码';
+    document.getElementById('loginHint').textContent = '密码将保存在本地，用于恢复好友和聊天记录';
+    document.getElementById('loginOverlay').classList.remove('hidden');
+  } else {
+    // 已有密码：验证登录
+    document.getElementById('loginSub').textContent = '欢迎回来，输入密码登录';
+    document.getElementById('loginPwd2').style.display = 'none';
+    document.getElementById('loginBtn').textContent = '登录';
+    document.getElementById('loginHint').textContent = '输入密码以恢复你的账户';
+    document.getElementById('loginOverlay').classList.remove('hidden');
+  }
+}
+
+function handleLogin() {
+  const pwd = document.getElementById('loginPwd').value.trim();
+  const err = document.getElementById('loginError');
+  
+  if (!pwd || pwd.length < 2) {
+    err.textContent = '密码至少2位';
+    err.classList.add('show');
+    return;
+  }
+
+  const hash = getPasswordHash();
+  if (!hash) {
+    // 新用户
+    const pwd2 = document.getElementById('loginPwd2').value.trim();
+    if (pwd !== pwd2) {
+      err.textContent = '两次密码不一致';
+      err.classList.add('show');
+      return;
+    }
+    savePassword(pwd);
+    // 为新用户保存当前好友
+    saveFriends([]);
+  } else {
+    // 验证
+    if (savePassword(pwd) !== hash) {
+      err.textContent = '密码错误';
+      err.classList.add('show');
+      return;
+    }
+  }
+
+  // 登录成功
+  document.getElementById('loginOverlay').classList.add('hidden');
+  // 恢复好友
+  state.friends = loadFriends();
+  connectWS();
+}
+
+function onLoginKey(e) {
+  if (e.key === 'Enter') handleLogin();
+}
+
 // ============ WebSocket ============
 function connectWS() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -526,6 +702,13 @@ function connectWS() {
   ws.onopen = () => {
     console.log('已连接');
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    // 发送初始化消息（含好友和聊天记录）
+    send({
+      type: 'init',
+      deviceId: state.deviceId,
+      friends: loadFriends().map(f => f.id),
+      chatHistory: loadChatHistory()
+    });
   };
   
   ws.onmessage = (e) => {
@@ -629,9 +812,9 @@ function handleMessage(msg) {
 
     case 'friend_added': {
       state.friends.push({ id: msg.friendId, name: msg.friendName, online: true });
+      saveFriends(state.friends);
       renderFriendList();
       showToast(`${msg.friendName} 已成为你的好友`);
-      // 重置加好友按钮
       const btn = document.getElementById('addFriendBtn');
       btn.classList.remove('pending');
       btn.textContent = '🤝 加好友';
@@ -660,13 +843,15 @@ function handleMessage(msg) {
     }
 
     case 'friend_message': {
+      const fid = msg.fromMe ? (state.friendChatId || msg.fromId) : msg.fromId;
       if (msg.fromMe) {
         appendFriendMessage(msg.text, true);
       } else {
         appendFriendMessage(msg.text, false);
       }
+      saveChatMessage(state.userId, fid, { from: state.userId, text: msg.text, time: msg.time || Date.now() });
       // 更新好友列表的最后消息
-      const friend = state.friends.find(f => f.id === msg.fromId);
+      const friend = state.friends.find(f => f.id === fid);
       if (friend) friend.lastMsg = { text: msg.text.substring(0, 20), time: msg.time };
       renderFriendList();
       break;
@@ -678,6 +863,7 @@ function handleMessage(msg) {
 
     case 'friend_list':
       state.friends = msg.friends;
+      saveFriends(state.friends);
       renderFriendList();
       break;
 
@@ -1027,7 +1213,7 @@ function showToast(text) {
 // ============ 初始化 ============
 renderTags();
 document.getElementById('profileTags').innerHTML = '<span style="color:rgba(255,255,255,.3);font-size:13px">未设置兴趣标签</span>';
-connectWS();
+initLogin();
 
 // 心跳
 setInterval(() => send({ type: 'ping' }), 25000);

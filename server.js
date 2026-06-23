@@ -185,37 +185,77 @@ function handleDisconnect(ws) {
 
 // ============ WebSocket ============
 let idCounter = 1;
+const deviceUserMap = new Map(); // deviceId -> userId
 
 wss.on('connection', (ws) => {
-  const userId = String(idCounter++).padStart(4, '0');
-  const userName = `匿名用户 #${userId}`;
-  const userInfo = {
-    id: userId,
-    name: userName,
-    state: 'idle',
-    partner: null,
-    tags: []
-  };
-  connections.set(ws, userInfo);
-  idToWs.set(userId, ws);
-
-  console.log(`连接: ${userName}`);
-
-  // 发送身份信息(含好友列表)
-  const friendList = getFriendListWithNames(userId);
-  ws.send(JSON.stringify({
-    type: 'identity',
-    id: userId,
-    name: userName,
-    friends: friendList
-  }));
-  // 通知好友上线
-  broadcastFriendStatus(userId, true);
+  let userId, userName, userInfo;
+  let inited = false;
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw.toString()); }
     catch (e) { return; }
+
+    // 首次消息必须是 init
+    if (!inited) {
+      if (msg.type !== 'init') return;
+
+      const deviceId = msg.deviceId || 'anon_' + (idCounter++);
+      if (deviceUserMap.has(deviceId)) {
+        userId = deviceUserMap.get(deviceId);
+      } else {
+        userId = String(idCounter++).padStart(4, '0');
+        deviceUserMap.set(deviceId, userId);
+      }
+      userName = `匿名用户 #${userId}`;
+      userInfo = {
+        id: userId,
+        name: userName,
+        state: 'idle',
+        partner: null,
+        tags: []
+      };
+      connections.set(ws, userInfo);
+      idToWs.set(userId, ws);
+
+      // 从客户端恢复好友关系
+      if (msg.friends && msg.friends.length > 0) {
+        for (const fid of msg.friends) {
+          addFriendPair(userId, fid);
+        }
+      }
+
+      // 同步聊天历史（合并去重）
+      if (msg.chatHistory) {
+        for (const [key, msgs] of Object.entries(msg.chatHistory)) {
+          if (!friendMessages.has(key)) {
+            friendMessages.set(key, msgs);
+          } else {
+            const existing = friendMessages.get(key);
+            const seen = new Set(existing.map(m => `${m.from}|${m.time}`));
+            for (const m of msgs) {
+              if (!seen.has(`${m.from}|${m.time}`)) {
+                existing.push(m);
+                seen.add(`${m.from}|${m.time}`);
+              }
+            }
+          }
+        }
+      }
+
+      inited = true;
+      console.log(`连接: ${userName} (device: ${deviceId.slice(0, 8)}...)`);
+
+      const friendList = getFriendListWithNames(userId);
+      ws.send(JSON.stringify({
+        type: 'identity',
+        id: userId,
+        name: userName,
+        friends: friendList
+      }));
+      broadcastFriendStatus(userId, true);
+      return;
+    }
 
     const info = connections.get(ws);
     if (!info) return;
